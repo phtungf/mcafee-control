@@ -36,6 +36,16 @@ check_root() {
     fi
 }
 
+# Kill processes matching pattern, but never kill self ($$) or parent ($PPID).
+safe_pkill() {
+    local signal="$1" pattern="$2" pid
+    pgrep -f "$pattern" 2>/dev/null | while read -r pid; do
+        if [ "$pid" != "$$" ] && [ "$pid" != "$PPID" ]; then
+            kill "$signal" "$pid" 2>/dev/null
+        fi
+    done
+}
+
 stop_mcafee() {
     check_root "stop"
     echo -e "${YELLOW}Stopping McAfee...${NC}"
@@ -62,9 +72,9 @@ stop_mcafee() {
 
     sleep 1
 
-    pkill -9 -f "/usr/local/McAfee/" 2>/dev/null
-    pkill -9 -f "com.mcafee" 2>/dev/null
-    pkill -9 -f "McAfee" 2>/dev/null
+    safe_pkill -9 "/usr/local/McAfee/"
+    safe_pkill -9 "com.mcafee"
+    safe_pkill -9 "McAfee"
 
     local sysext_id
     sysext_id=$(systemextensionsctl list 2>/dev/null | grep -i mcafee | awk '{print $NF}' | head -1)
@@ -76,7 +86,7 @@ stop_mcafee() {
 
     sleep 2
 
-    pkill -9 -f "mcafee" 2>/dev/null
+    safe_pkill -9 "mcafee"
 
     sleep 1
     local count
