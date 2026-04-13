@@ -36,13 +36,26 @@ check_root() {
     fi
 }
 
-# Kill processes matching pattern, but never kill self ($$) or parent ($PPID).
+# Kill processes matching pattern, but never kill self or any ancestor
+# (script PID, parent shell, sudo, install.sh, terminal, etc.).
 safe_pkill() {
-    local signal="$1" pattern="$2" pid
-    pgrep -f "$pattern" 2>/dev/null | while read -r pid; do
-        if [ "$pid" != "$$" ] && [ "$pid" != "$PPID" ]; then
-            kill "$signal" "$pid" 2>/dev/null
-        fi
+    local signal="$1" pattern="$2" pid pids skip p
+    pids=$(pgrep -f "$pattern" 2>/dev/null) || true
+    [ -z "$pids" ] && return 0
+
+    skip=" $$ $PPID "
+    p="$PPID"
+    while [ -n "$p" ] && [ "$p" != "0" ] && [ "$p" != "1" ]; do
+        p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+        [ -z "$p" ] && break
+        skip="$skip$p "
+    done
+
+    for pid in $pids; do
+        case "$skip" in
+            *" $pid "*) continue ;;
+        esac
+        kill "$signal" "$pid" 2>/dev/null || true
     done
 }
 
