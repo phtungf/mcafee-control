@@ -73,6 +73,47 @@ sudo ./install.sh
 - This tool only stops McAfee, it does **not** uninstall it. To uninstall McAfee itself, use the official McAfee removal tool.
 - Disabling endpoint security may violate your employer's policies. Use at your own risk.
 
+## Known limitation: McAfee Network Extension survives `stop`
+
+After `sudo mcafee stop`, `mcafee status` may still show one process:
+
+```
+McAfee: RUNNING (1 process(es))
+  PID xxxxx  CPU 0.0  /Library/SystemExtensions/.../com.mcafee.CMF.networkextension
+```
+
+This is the **McAfee Network Extension** (a macOS *System Extension*). It runs under the launchd label `<teamID>.com.mcafee.CMF.networkextension` and is protected by **System Integrity Protection (SIP)**. With SIP enabled, macOS refuses every removal path from user space:
+
+| Attempt | Result |
+| --- | --- |
+| `kill -9 <pid>` | Process respawns immediately (sysextd) |
+| `launchctl bootout system/<label>` | `Boot-out failed: 1: Operation not permitted` |
+| `launchctl disable system/<label>` | Silently ignored |
+| `systemextensionsctl uninstall <teamID> <bundleID>` | `At this time, this tool cannot be used if System Integrity Protection is enabled.` |
+
+This is by design — Apple explicitly prevents user-space tools (including root) from disabling endpoint-security extensions, so malware cannot disable AV products.
+
+**The good news:** the surviving extension sits at ~0.0% CPU. All the heavy McAfee daemons (real-time scan, on-access scan, periodic scan, firewall, VPN, product update, DAT update, cloud SDK, menulet, etc.) are fully stopped, which is what was actually consuming resources.
+
+### If you really need to remove the network extension
+
+You have to take SIP out of the picture. Two options:
+
+**Option A — temporarily disable SIP, uninstall, re-enable** (not recommended for daily use):
+
+1. Reboot into Recovery (Apple Silicon: hold power; Intel: hold ⌘R during boot).
+2. Open Terminal → `csrutil disable` → reboot.
+3. Back in macOS:
+   ```bash
+   sudo systemextensionsctl uninstall GT8P3H7SPW com.mcafee.CMF.networkextension
+   ```
+   (Replace `GT8P3H7SPW` with your teamID from `systemextensionsctl list | grep mcafee`.)
+4. Reboot into Recovery again → `csrutil enable` → reboot.
+
+**Option B — use the official McAfee uninstaller** (preferred). The McAfee installer is registered with the system extension and is allowed to deactivate it cleanly. On a corporate machine this will likely be flagged by IT.
+
+If your employer manages the device via MDM and the extension was installed by a configuration profile, you also need to remove that profile (`profiles list | grep mcafee` to check). On managed machines this typically requires IT approval.
+
 ## License
 
 MIT
