@@ -97,11 +97,19 @@ stop_mcafee() {
     safe_pkill -9 "com.mcafee"
     safe_pkill -9 "McAfee"
 
-    local sysext_id
-    sysext_id=$(systemextensionsctl list 2>/dev/null | grep -i mcafee | awk '{print $NF}' | head -1)
-    if [ -n "$sysext_id" ]; then
-        systemextensionsctl uninstall operator "$sysext_id" 2>/dev/null
-    fi
+    # Deactivate any McAfee system extension(s).
+    # `systemextensionsctl list` rows look like:
+    #   *  *  GT8P3H7SPW  com.mcafee.CMF.networkextension (10.7.6/1)  McAfee Network Extension  [activated enabled]
+    # We need <teamID> <bundleID>, not the trailing state column.
+    local sysext_line teamid bundleid
+    while IFS= read -r sysext_line; do
+        [ -z "$sysext_line" ] && continue
+        teamid=$(echo "$sysext_line" | awk '{for(i=1;i<=NF;i++) if($i ~ /^[A-Z0-9]{10}$/) {print $i; exit}}')
+        bundleid=$(echo "$sysext_line" | awk '{for(i=1;i<=NF;i++) if($i ~ /^com\./) {print $i; exit}}')
+        if [ -n "$teamid" ] && [ -n "$bundleid" ]; then
+            systemextensionsctl uninstall "$teamid" "$bundleid" >/dev/null 2>&1 || true
+        fi
+    done < <(systemextensionsctl list 2>/dev/null | grep -i mcafee)
 
     defaults write /Library/Preferences/com.mcafee.CMF.networkextension enabled -bool false 2>/dev/null
 
