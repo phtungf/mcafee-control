@@ -56,6 +56,7 @@ esac
 echo ""
 
 # 2. Auto-stop on boot
+AUTOSTOP_ENABLED=0
 INSTALL_AUTOSTOP=$(ask "Auto-stop McAfee on every macOS boot? [Y/n]" "Y")
 case "$INSTALL_AUTOSTOP" in
     [Nn]*) echo "Skipping auto-stop." ;;
@@ -69,7 +70,11 @@ case "$INSTALL_AUTOSTOP" in
         chmod 644 "$AUTOSTOP_PLIST"
         chown root:wheel "$AUTOSTOP_PLIST"
         launchctl bootout system "$AUTOSTOP_PLIST" 2>/dev/null || true
+        # bootstrap triggers RunAtLoad, so 'mcafee stop' starts immediately in
+        # the background. We wait for it to finish below instead of running it
+        # again ourselves (which would race with the launchd-spawned instance).
         launchctl bootstrap system "$AUTOSTOP_PLIST"
+        AUTOSTOP_ENABLED=1
         echo -e "${GREEN}Auto-stop enabled (${AUTOSTOP_PLIST})${NC}"
         ;;
 esac
@@ -77,15 +82,29 @@ esac
 echo ""
 
 # 3. Run stop now
-RUN_NOW=$(ask "Run 'mcafee stop' now? [Y/n]" "Y")
-case "$RUN_NOW" in
-    [Nn]*) ;;
-    *)
-        if [ -x "$BIN_PATH" ]; then
-            "$BIN_PATH" stop || true
+if [ "$AUTOSTOP_ENABLED" -eq 1 ]; then
+    echo -e "${YELLOW}Auto-stop already triggered 'mcafee stop' in the background. Waiting...${NC}"
+    # Wait for the launchd-spawned mcafee process(es) to finish.
+    for _ in $(seq 1 30); do
+        if ! pgrep -f "/usr/local/bin/mcafee stop" >/dev/null 2>&1; then
+            break
         fi
-        ;;
-esac
+        sleep 1
+    done
+    if [ -x "$BIN_PATH" ]; then
+        "$BIN_PATH" status || true
+    fi
+else
+    RUN_NOW=$(ask "Run 'mcafee stop' now? [Y/n]" "Y")
+    case "$RUN_NOW" in
+        [Nn]*) ;;
+        *)
+            if [ -x "$BIN_PATH" ]; then
+                "$BIN_PATH" stop || true
+            fi
+            ;;
+    esac
+fi
 
 echo ""
 echo -e "${GREEN}Done.${NC}"

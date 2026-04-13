@@ -55,6 +55,14 @@ safe_pkill() {
         case "$skip" in
             *" $pid "*) continue ;;
         esac
+        # Also skip any other mcafee script instance running concurrently
+        # (e.g. one launched by the auto-stop LaunchDaemon).
+        local cmd
+        cmd=$(ps -o command= -p "$pid" 2>/dev/null)
+        case "$cmd" in
+            *"/usr/local/bin/mcafee"*) continue ;;
+            *"sudo"*"mcafee"*) continue ;;
+        esac
         kill "$signal" "$pid" 2>/dev/null || true
     done
 }
